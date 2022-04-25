@@ -19,7 +19,7 @@ void set_path_length(int *p, int len);
 
 int get_path_dist(int *p);
 
-int set_path_dist(int *p, int dist);
+void set_path_dist(int *p, int dist);
 
 int get_last_node(int *path);
 
@@ -35,7 +35,7 @@ void solve();
 
 int add_node(int *path, int i);
 
-int remove_node(int *path, int w);
+void remove_node(int *path, int w);
 
 void update_result(int *path);
 
@@ -123,7 +123,7 @@ int get_path_dist(int *p) {
     return p[N + 2];
 }
 
-int set_path_dist(int *p, int dist) {
+void set_path_dist(int *p, int dist) {
     p[N + 2] = dist;
 }
 
@@ -134,6 +134,7 @@ int get_last_node(int *path) {
 int *init_path() {
     int *initialPath;
     allocate_int_array(&initialPath, 1, N + 3);
+    initialPath[0] = 0;
     set_path_length(initialPath, 1);
     set_path_dist(initialPath, 0);
     return initialPath;
@@ -194,7 +195,7 @@ int add_node(int *path, int i) {
     return dist;
 }
 
-int remove_node(int *path, int w) {
+void remove_node(int *path, int w) {
     set_path_dist(path, get_path_dist(path) - w);
     set_path_length(path, get_path_length(path) - 1);
 }
