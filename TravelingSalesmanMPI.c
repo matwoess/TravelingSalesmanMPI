@@ -170,10 +170,10 @@ void freeGlobals() {
 void listen_for_messages() {
     MPI_Status status;
     logt_msg(verbose, rank, "waiting for requests from workers...");
-    MPI_Recv(commBuffer, commBufferSize, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-    logt_msg(verbose, rank, "received request from worker.");
+    MPI_Recv(commBuffer, commBufferSize, MPI_INT,
+             MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
     if (status.MPI_TAG == TAG_REQUEST_PATH) {
-        logt_msg(verbose, rank, "request was for a new path...");
+        logt_msg(verbose, rank, "received request was for a new path...");
         if (doneFlag) {
             send_done_to_worker(status.MPI_SOURCE);
             workerThreadsNotified[status.MPI_SOURCE] = true;
@@ -192,7 +192,7 @@ void listen_for_messages() {
             }
         }
     } else if (status.MPI_TAG == TAG_NEW_BEST) {
-        logt_msg(verbose, rank, "request was for a new best path...");
+        logt_msg(verbose, rank, "received request was for a new best score...");
         int newDist = get_best_dist(commBuffer);
         logt_curr_best_dist(verbose, rank, newDist, bestDistance);
         if (newDist < bestDistance) {
@@ -208,7 +208,8 @@ void listen_for_messages() {
 void send_done_to_worker(int dest) {
     logt_msg(verbose, rank, "informing worker that work is done.");
     set_done_flag(commBuffer, doneFlag);
-    MPI_Send(commBuffer, commBufferSize, MPI_INT, dest, TAG_REQUEST_PATH, MPI_COMM_WORLD);
+    MPI_Send(commBuffer, commBufferSize, MPI_INT,
+             dest, TAG_REQUEST_PATH, MPI_COMM_WORLD);
 }
 
 void send_path_to_worker(int *path, int dest) {
@@ -223,14 +224,15 @@ void send_path_to_worker(int *path, int dest) {
 
 int *get_path_from_manager() {
     logt_msg(verbose, rank, "requesting path from manager...");
-    MPI_Send(commBuffer, commBufferSize, MPI_INT, MANAGER, TAG_REQUEST_PATH, MPI_COMM_WORLD);
-    logt_msg(verbose, rank, "sent request.");
+    MPI_Send(commBuffer, commBufferSize, MPI_INT,
+             MANAGER, TAG_REQUEST_PATH, MPI_COMM_WORLD);
     MPI_Status status;
     logt_msg(verbose, rank, "waiting for path from manager...");
-    MPI_Recv(commBuffer, commBufferSize, MPI_INT, MANAGER, TAG_REQUEST_PATH, MPI_COMM_WORLD, &status);
+    MPI_Recv(commBuffer, commBufferSize, MPI_INT,
+             MANAGER, TAG_REQUEST_PATH, MPI_COMM_WORLD, &status);
     doneFlag = get_done_flag(commBuffer);
     if (doneFlag) {
-        logt_msg(verbose, rank, "received work is done. Exiting...");
+        logt_msg(verbose, rank, "received work is done. exiting...");
         return NULL;
     }
     logt_msg(verbose, rank, "received path from manager.");
@@ -244,8 +246,9 @@ void *send_result_to_manager(int *path) {
     memcpy(commBuffer, path, (N + 3) * sizeof(int));
     set_best_dist(commBuffer, bestDistance);
     set_done_flag(commBuffer, doneFlag);
-    MPI_Send(commBuffer, commBufferSize, MPI_INT, MANAGER, TAG_NEW_BEST, MPI_COMM_WORLD);
-    logt_msg(verbose, rank, "sent path to manger.");
+    MPI_Send(commBuffer, commBufferSize, MPI_INT,
+             MANAGER, TAG_NEW_BEST, MPI_COMM_WORLD);
+
 }
 
 int *init_path() {

@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include "Util.h"
 
-#define ERR_ALLOCATE_MEM -2
+#define ERR_ALLOCATE_MEM (-2)
 #define MAX_DISTANCE 100
 static unsigned int SEED = 42;
 
