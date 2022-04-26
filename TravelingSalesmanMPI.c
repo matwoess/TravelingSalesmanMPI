@@ -29,7 +29,7 @@ void add_path(int *path);
 
 void remove_path(int *path);
 
-void expand_path(int *path);
+void split_work(int *path);
 
 void solve(int *path);
 
@@ -45,8 +45,6 @@ void send_path_to_worker(int *path, int dest);
 
 void listen_for_messages();
 
-void print_comm_buffer();
-
 bool get_done_flag(int *buf);
 
 void set_best_dist(int *buf, int distance);
@@ -58,6 +56,8 @@ int get_best_dist(int *buf);
 bool all_threads_received_done();
 
 void send_done_to_worker(int source);
+
+void freeGlobals();
 
 bool prune = true;
 bool verbose = false;
@@ -103,7 +103,9 @@ int main(int argc, char *argv[]) {
     init_globals();
     time_t t1 = time(NULL);
     if (rank == 0) {
-        add_path(init_path());
+        int *path = init_path();
+        add_path(path);
+        free(path);
         while (true) {
             listen_for_messages();
             if (doneFlag && all_threads_received_done()) {
@@ -117,7 +119,6 @@ int main(int argc, char *argv[]) {
                 break;
             };
             solve(path);
-            free(path);
         }
     }
     time_t t2 = time(NULL);
@@ -131,14 +132,9 @@ int main(int argc, char *argv[]) {
         printt_path(true, rank, bestPath, N + 1, bestDistance);
         printf("\nAlgorithm took %.3fs\n", (double) (t2 - t1));
     }
+    freeGlobals();
     MPI_Finalize();
     return 0;
-}
-
-bool all_threads_received_done() {
-    for (int i = 0; i < N - 1; i++)
-        if (!workerThreadsNotified[i]) return false;
-    return true;
 }
 
 void init_globals() {
@@ -156,6 +152,21 @@ void init_globals() {
     }
 }
 
+bool all_threads_received_done() {
+    for (int i = 0; i < N - 1; i++)
+        if (!workerThreadsNotified[i]) return false;
+    return true;
+}
+
+void freeGlobals() {
+    free(paths);
+    free(bestPath);
+    free(commBuffer);
+    if (rank == 0) {
+        free(workerThreadsNotified);
+    }
+}
+
 void listen_for_messages() {
     MPI_Status status;
     logt_msg(verbose, rank, "waiting for requests from workers...");
@@ -163,23 +174,25 @@ void listen_for_messages() {
     logt_msg(verbose, rank, "received request from worker.");
     if (status.MPI_TAG == TAG_REQUEST_PATH) {
         logt_msg(verbose, rank, "request was for a new path...");
-        int *path;
-        if (!doneFlag) {
-            allocate_int_array(&path, 1, N+3);
-            remove_path(path);
-            if (pathsInStack == 0) {
-                expand_path(path);
-            }
-        }
         if (doneFlag) {
             send_done_to_worker(status.MPI_SOURCE);
             workerThreadsNotified[status.MPI_SOURCE] = true;
         } else {
+            int *path = commBuffer;
+            remove_path(path);
+            if (pathsInStack == 0) {
+                split_work(path);
+                if (pathsInStack > 1) {
+                    remove_path(path);
+                }
+            }
             send_path_to_worker(path, status.MPI_SOURCE);
+            if (pathsInStack == 0) {
+                doneFlag = true;
+            }
         }
     } else if (status.MPI_TAG == TAG_NEW_BEST) {
         logt_msg(verbose, rank, "request was for a new best path...");
-        print_comm_buffer(commBuffer, commBufferSize, rank);
         int newDist = get_best_dist(commBuffer);
         logt_curr_best_dist(verbose, rank, newDist, bestDistance);
         if (newDist < bestDistance) {
@@ -216,14 +229,12 @@ int *get_path_from_manager() {
     logt_msg(verbose, rank, "waiting for path from manager...");
     MPI_Recv(commBuffer, commBufferSize, MPI_INT, MANAGER, TAG_REQUEST_PATH, MPI_COMM_WORLD, &status);
     doneFlag = get_done_flag(commBuffer);
-    int *path;
     if (doneFlag) {
         logt_msg(verbose, rank, "received work is done. Exiting...");
         return NULL;
     }
-    allocate_int_array(&path, 1, N + 3);
     logt_msg(verbose, rank, "received path from manager.");
-    memcpy(path, commBuffer, (N + 3) * sizeof(int));
+    int *path = commBuffer;
     bestDistance = get_best_dist(commBuffer);
     return path;
 }
@@ -257,7 +268,7 @@ void remove_path(int *path) {
     memcpy(path, &paths[pathsInStack * (N + 3)], (N + 3) * sizeof(int));
 }
 
-void expand_path(int *path) {
+void split_work(int *path) {
     logt_msg(verbose, rank, "expanding path: ");
     printt_path(verbose, rank, path, get_path_length(path), get_path_dist(path));
     for (int i = 0; i < N; i++) {
@@ -265,10 +276,6 @@ void expand_path(int *path) {
         if (w < 0) continue;
         add_path(path);
         remove_node(path, w);
-    }
-    if (pathsInStack == 0) {
-        free(path);
-        doneFlag = true;
     }
 }
 
