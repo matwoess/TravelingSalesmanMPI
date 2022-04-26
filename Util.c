@@ -101,11 +101,3 @@ void printt_path(bool verbose, int rank, int *path, int pathLength, int distance
     }
     printf(",%d\n", distance);
 }
-
-void print_comm_buffer(int *commBuffer, int commBufferSize, int rank) {
-    printf("T%d buffer: ", rank);
-    for (int i = 0; i < commBufferSize; i++) {
-        printf("%d ", commBuffer[i]);
-    }
-    printf("\n");
-}
