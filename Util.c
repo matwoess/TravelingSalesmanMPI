@@ -29,24 +29,28 @@ void log_msg(bool verbose, char *s) {
 }
 
 void log_prune(bool verbose, int newDist, int currBest) {
-    if (verbose) printf(
+    if (verbose)
+        printf(
                 "pruning path because %d is more than current best %d\n",
                 newDist,
                 currBest);
 }
 
 void log_curr_best_dist(bool verbose, int totalDist, int currBest) {
-    if (verbose) printf(
-            "totalDist: %d, currentBest %d\n",
-            totalDist,
-            currBest);
+    if (verbose)
+        printf(
+                "totalDist: %d, currentBest %d\n",
+                totalDist,
+                currBest);
 }
+
 void logt_msg(bool verbose, int rank, char *s) {
     if (verbose) printf("T%d: %s\n", rank, s);
 }
 
 void logt_prune(bool verbose, int rank, int newDist, int currBest) {
-    if (verbose) printf(
+    if (verbose)
+        printf(
                 "T%d: pruning path because %d is more than current best %d\n",
                 rank,
                 newDist,
@@ -54,7 +58,8 @@ void logt_prune(bool verbose, int rank, int newDist, int currBest) {
 }
 
 void logt_curr_best_dist(bool verbose, int rank, int totalDist, int currBest) {
-    if (verbose) printf(
+    if (verbose)
+        printf(
                 "T%d: totalDist: %d, currentBest %d\n",
                 rank,
                 totalDist,
@@ -78,21 +83,29 @@ void print_edge_matrix(int **edgeMatrix, int n) {
     }
 }
 
-void print_path(bool verbose, int* path, int pathLength, int distance) {
+void print_path(bool verbose, int *path, int pathLength, int distance) {
     if (!verbose) return;
     for (int i = 0; i < pathLength; i++) {
         printf("%d", path[i]);
-        if (i != pathLength-1) printf("->");
+        if (i != pathLength - 1) printf("->");
     }
     printf(",%d\n", distance);
 }
 
-void printt_path(bool verbose, int rank, int* path, int pathLength, int distance) {
+void printt_path(bool verbose, int rank, int *path, int pathLength, int distance) {
     if (!verbose) return;
     printf("T%d: ", rank);
     for (int i = 0; i < pathLength; i++) {
         printf("%d", path[i]);
-        if (i != pathLength-1) printf("->");
+        if (i != pathLength - 1) printf("->");
     }
     printf(",%d\n", distance);
+}
+
+void print_comm_buffer(int *commBuffer, int commBufferSize, int rank) {
+    printf("T%d buffer: ", rank);
+    for (int i = 0; i < commBufferSize; i++) {
+        printf("%d ", commBuffer[i]);
+    }
+    printf("\n");
 }

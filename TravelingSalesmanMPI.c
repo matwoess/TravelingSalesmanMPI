@@ -7,8 +7,6 @@
 #include <time.h>
 #include "Util.h"
 
-#define ERR_INVALID_ARGS -1
-
 bool parse_args(int argc, char **argv);
 
 void init_globals();
@@ -31,6 +29,8 @@ void add_path(int *path);
 
 void remove_path(int *path);
 
+void expand_path(int *path);
+
 void solve(int *path);
 
 int add_node(int *path, int i);
@@ -41,9 +41,9 @@ void update_result(int *path);
 
 int *get_path_from_manager();
 
-void *send_path_to_worker(int *path, int dest);
+void send_path_to_worker(int *path, int dest);
 
-void receive_result_from_workers();
+void listen_for_messages();
 
 void print_comm_buffer();
 
@@ -54,6 +54,10 @@ void set_best_dist(int *buf, int distance);
 void set_done_flag(int *buf, int flag);
 
 int get_best_dist(int *buf);
+
+bool all_threads_received_done();
+
+void send_done_to_worker(int source);
 
 bool prune = true;
 bool verbose = false;
@@ -69,7 +73,7 @@ int doneFlag;
 int size, rank;
 int *commBuffer;
 int commBufferSize;
-int *threadsIdle;
+int *workerThreadsNotified;
 
 static const int EXAMPLE_EDGES[][4] = {
         {0, 1,  3,  8},
@@ -78,9 +82,14 @@ static const int EXAMPLE_EDGES[][4] = {
         {7, 4,  12, 0},
 };
 #define EXAMPLE_N_NODES 4
+#define ERR_INVALID_ARGS (-1)
+#define OFFSET_PATH_LEN 1
+#define OFFSET_PATH_DIST 2
 #define MANAGER 0
+#define OFFSET_BEST_DIST 3
+#define OFFSET_DONE_FLAG 4
 
-static const int TAG_NEW_PATH = 99;
+static const int TAG_REQUEST_PATH = 99;
 static const int TAG_NEW_BEST = 100;
 
 int main(int argc, char *argv[]) {
@@ -94,22 +103,21 @@ int main(int argc, char *argv[]) {
     init_globals();
     time_t t1 = time(NULL);
     if (rank == 0) {
-        int *path = init_path();
-        pathsInStack = 1;
-        send_path_to_worker(path, 1);
-        do {
-            receive_result_from_workers();
-            if (pathsInStack == 0) {
-                doneFlag = true;
-                send_path_to_worker(path, 1);
+        add_path(init_path());
+        while (true) {
+            listen_for_messages();
+            if (doneFlag && all_threads_received_done()) {
                 break;
             }
-        } while (pathsInStack > 0);
+        }
     } else {
         while (true) {
             int *path = get_path_from_manager();
-            if (doneFlag) break;
+            if (doneFlag) {
+                break;
+            };
             solve(path);
+            free(path);
         }
     }
     time_t t2 = time(NULL);
@@ -127,6 +135,12 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
+bool all_threads_received_done() {
+    for (int i = 0; i < N - 1; i++)
+        if (!workerThreadsNotified[i]) return false;
+    return true;
+}
+
 void init_globals() {
     allocate_int_array(&paths, N * (N - 1) / 2, N + 3);
     pathsInStack = 0;
@@ -136,85 +150,92 @@ void init_globals() {
     allocate_int_array(&commBuffer, 1, commBufferSize);
     doneFlag = false;
     if (rank == 0) {
-        allocate_int_array(&threadsIdle, 1, N);
+        allocate_int_array(&workerThreadsNotified, 1, N - 1);
+        for (int i = 0; i < N - 1; i++)
+            workerThreadsNotified[i] = true;
     }
 }
 
-void *send_path_to_worker(int *path, int dest) {
+void listen_for_messages() {
+    MPI_Status status;
+    logt_msg(verbose, rank, "waiting for requests from workers...");
+    MPI_Recv(commBuffer, commBufferSize, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+    logt_msg(verbose, rank, "received request from worker.");
+    if (status.MPI_TAG == TAG_REQUEST_PATH) {
+        logt_msg(verbose, rank, "request was for a new path...");
+        int *path;
+        if (!doneFlag) {
+            allocate_int_array(&path, 1, N+3);
+            remove_path(path);
+            if (pathsInStack == 0) {
+                expand_path(path);
+            }
+        }
+        if (doneFlag) {
+            send_done_to_worker(status.MPI_SOURCE);
+            workerThreadsNotified[status.MPI_SOURCE] = true;
+        } else {
+            send_path_to_worker(path, status.MPI_SOURCE);
+        }
+    } else if (status.MPI_TAG == TAG_NEW_BEST) {
+        logt_msg(verbose, rank, "request was for a new best path...");
+        print_comm_buffer(commBuffer, commBufferSize, rank);
+        int newDist = get_best_dist(commBuffer);
+        logt_curr_best_dist(verbose, rank, newDist, bestDistance);
+        if (newDist < bestDistance) {
+            logt_msg(verbose, rank, "new best. copying to bestPath...");
+            memcpy(bestPath, commBuffer, (N + 3) * sizeof(int));
+            bestDistance = newDist;
+        }
+    } else {
+        logt_msg(verbose, rank, "unknown tag received!");
+    }
+}
+
+void send_done_to_worker(int dest) {
+    logt_msg(verbose, rank, "informing worker that work is done.");
+    set_done_flag(commBuffer, doneFlag);
+    MPI_Send(commBuffer, commBufferSize, MPI_INT, dest, TAG_REQUEST_PATH, MPI_COMM_WORLD);
+}
+
+void send_path_to_worker(int *path, int dest) {
     logt_msg(verbose, rank, "sending path to worker...");
+    printt_path(verbose, rank, path, get_path_length(path), get_path_dist(path));
     memcpy(commBuffer, path, (N + 3) * sizeof(int));
     set_best_dist(commBuffer, bestDistance);
     set_done_flag(commBuffer, doneFlag);
-    MPI_Send(commBuffer, commBufferSize, MPI_INT, dest, TAG_NEW_PATH, MPI_COMM_WORLD);
+    MPI_Send(commBuffer, commBufferSize, MPI_INT, dest, TAG_REQUEST_PATH, MPI_COMM_WORLD);
     logt_msg(verbose, rank, "sent path to worker.");
 }
 
 int *get_path_from_manager() {
-    int *path;
-    allocate_int_array(&path, 1, N + 3);
+    logt_msg(verbose, rank, "requesting path from manager...");
+    MPI_Send(commBuffer, commBufferSize, MPI_INT, MANAGER, TAG_REQUEST_PATH, MPI_COMM_WORLD);
+    logt_msg(verbose, rank, "sent request.");
     MPI_Status status;
     logt_msg(verbose, rank, "waiting for path from manager...");
-    MPI_Recv(commBuffer, commBufferSize, MPI_INT, MANAGER, TAG_NEW_PATH, MPI_COMM_WORLD, &status);
+    MPI_Recv(commBuffer, commBufferSize, MPI_INT, MANAGER, TAG_REQUEST_PATH, MPI_COMM_WORLD, &status);
+    doneFlag = get_done_flag(commBuffer);
+    int *path;
+    if (doneFlag) {
+        logt_msg(verbose, rank, "received work is done. Exiting...");
+        return NULL;
+    }
+    allocate_int_array(&path, 1, N + 3);
     logt_msg(verbose, rank, "received path from manager.");
     memcpy(path, commBuffer, (N + 3) * sizeof(int));
-    printf("len of received path: %d\n", get_path_length(path));
-    printf("dist of received path: %d\n", get_path_dist(path));
     bestDistance = get_best_dist(commBuffer);
-    doneFlag = get_done_flag(commBuffer);
     return path;
 }
 
 void *send_result_to_manager(int *path) {
     logt_msg(verbose, rank, "sending path to manager...");
-    memcpy(commBuffer, &path, (N + 3) * sizeof(int));
+    memcpy(commBuffer, path, (N + 3) * sizeof(int));
     set_best_dist(commBuffer, bestDistance);
     set_done_flag(commBuffer, doneFlag);
     MPI_Send(commBuffer, commBufferSize, MPI_INT, MANAGER, TAG_NEW_BEST, MPI_COMM_WORLD);
     logt_msg(verbose, rank, "sent path to manger.");
 }
-
-void receive_result_from_workers() {
-    MPI_Status status;
-    logt_msg(verbose, rank, "waiting for answer from workers...");
-    MPI_Recv(commBuffer, commBufferSize, MPI_INT, MPI_ANY_SOURCE, TAG_NEW_BEST, MPI_COMM_WORLD, &status);
-    logt_msg(verbose, rank, "received answer from worker.");
-    int newDist = get_best_dist(commBuffer);
-    if (newDist < bestDistance) {
-        memcpy(bestPath, commBuffer, (N + 3) * sizeof(int));
-        bestDistance = newDist;
-    }
-    if (get_done_flag(commBuffer) == true) {
-        threadsIdle[status.MPI_SOURCE] = true;
-    }
-}
-
-bool parse_args(int argc, char *argv[]) {
-    bool applyExample = argc >= 2 && strcmp(argv[1], "example") == 0;
-    if (applyExample) {
-        edgeMatrix = (int *) EXAMPLE_EDGES;
-        N = EXAMPLE_N_NODES;
-    } else if (argc < 3) {
-        printf("Not enough arguments!\n");
-        printf("Usage: <program> <nNodes> <%%population> [-noprune] [-verbose]\n");
-        printf("Alternative: <program> \"example\" [-noprune] [-verbose]\n");
-        return false;
-    } else {
-        char *endptr;
-        int nodesArg = (int) strtol(argv[1], &endptr, 10);
-        int populationArg = (int) strtol(argv[2], &endptr, 10);
-        N = nodesArg;
-        edgeMatrix = get_random_edge_matrix(nodesArg, populationArg);
-    }
-    for (int a = 0; a < argc; a++) {
-        if (strcmp(argv[a], "-noprune") == 0) {
-            prune = false;
-        } else if (strcmp(argv[a], "-verbose") == 0) {
-            verbose = true;
-        }
-    }
-    return true;
-}
-
 
 int *init_path() {
     int *initialPath;
@@ -236,6 +257,20 @@ void remove_path(int *path) {
     memcpy(path, &paths[pathsInStack * (N + 3)], (N + 3) * sizeof(int));
 }
 
+void expand_path(int *path) {
+    logt_msg(verbose, rank, "expanding path: ");
+    printt_path(verbose, rank, path, get_path_length(path), get_path_dist(path));
+    for (int i = 0; i < N; i++) {
+        int w = add_node(path, i);
+        if (w < 0) continue;
+        add_path(path);
+        remove_node(path, w);
+    }
+    if (pathsInStack == 0) {
+        free(path);
+        doneFlag = true;
+    }
+}
 
 void solve(int *path) {
     add_path(path);
@@ -253,9 +288,6 @@ void solve(int *path) {
             remove_node(path, w);
         }
     }
-    free(path);
-    doneFlag = true;
-    send_result_to_manager(bestPath);
 }
 
 int add_node(int *path, int i) {
@@ -303,20 +335,47 @@ void update_result(int *path) {
 }
 
 
+bool parse_args(int argc, char *argv[]) {
+    bool applyExample = argc >= 2 && strcmp(argv[1], "example") == 0;
+    if (applyExample) {
+        edgeMatrix = (int *) EXAMPLE_EDGES;
+        N = EXAMPLE_N_NODES;
+    } else if (argc < 3) {
+        printf("Not enough arguments!\n");
+        printf("Usage: <program> <nNodes> <%%population> [-noprune] [-verbose]\n");
+        printf("Alternative: <program> \"example\" [-noprune] [-verbose]\n");
+        return false;
+    } else {
+        char *endptr;
+        int nodesArg = (int) strtol(argv[1], &endptr, 10);
+        int populationArg = (int) strtol(argv[2], &endptr, 10);
+        N = nodesArg;
+        edgeMatrix = get_random_edge_matrix(nodesArg, populationArg);
+    }
+    for (int a = 0; a < argc; a++) {
+        if (strcmp(argv[a], "-noprune") == 0) {
+            prune = false;
+        } else if (strcmp(argv[a], "-verbose") == 0) {
+            verbose = true;
+        }
+    }
+    return true;
+}
+
 int get_path_length(int *p) {
-    return p[N + 1];
+    return p[N + OFFSET_PATH_LEN];
 }
 
 void set_path_length(int *p, int len) {
-    p[N + 1] = len;
+    p[N + OFFSET_PATH_LEN] = len;
 }
 
 int get_path_dist(int *p) {
-    return p[N + 2];
+    return p[N + OFFSET_PATH_DIST];
 }
 
 void set_path_dist(int *p, int dist) {
-    p[N + 2] = dist;
+    p[N + OFFSET_PATH_DIST] = dist;
 }
 
 int get_last_node(int *path) {
@@ -331,26 +390,17 @@ bool is_already_in_path(int *path, int node) {
 
 
 int get_best_dist(int *buf) {
-    return buf[N + 3];
+    return buf[N + OFFSET_BEST_DIST];
 }
 
 void set_best_dist(int *buf, int distance) {
-    buf[N + 3] = distance;
+    buf[N + OFFSET_BEST_DIST] = distance;
 }
 
 bool get_done_flag(int *buf) {
-    return buf[N + 4];
+    return buf[N + OFFSET_DONE_FLAG];
 }
 
 void set_done_flag(int *buf, int flag) {
-    buf[N + 4] = flag;
-}
-
-
-void print_comm_buffer() {
-    printf("T%d buffer: ", rank);
-    for (int i = 0; i < commBufferSize; i++) {
-        printf("%d ", commBuffer[i]);
-    }
-    printf("\n");
+    buf[N + OFFSET_DONE_FLAG] = flag;
 }

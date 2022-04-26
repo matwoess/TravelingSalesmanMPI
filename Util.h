@@ -12,5 +12,6 @@ void logt_prune(bool verbose, int rank, int newDist, int currBest);
 void logt_curr_best_dist(bool verbose, int rank, int totalDist, int currBest);
 void print_path(bool verbose, int* path, int pathLength, int distance);
 void printt_path(bool verbose, int rank, int* path, int pathLength, int distance);
+void print_comm_buffer(int *commBuffer, int commBufferSize, int rank);
 
 #endif //TRAVELINGSALESMAN_UTIL_H
