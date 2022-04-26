@@ -41,6 +41,25 @@ void log_curr_best_dist(bool verbose, int totalDist, int currBest) {
             totalDist,
             currBest);
 }
+void logt_msg(bool verbose, int rank, char *s) {
+    if (verbose) printf("T%d: %s\n", rank, s);
+}
+
+void logt_prune(bool verbose, int rank, int newDist, int currBest) {
+    if (verbose) printf(
+                "T%d: pruning path because %d is more than current best %d\n",
+                rank,
+                newDist,
+                currBest);
+}
+
+void logt_curr_best_dist(bool verbose, int rank, int totalDist, int currBest) {
+    if (verbose) printf(
+                "T%d: totalDist: %d, currentBest %d\n",
+                rank,
+                totalDist,
+                currBest);
+}
 
 void allocate_int_array(int **array, int rows, int columns) {
     int *a = (int *) malloc(rows * columns * sizeof(int));
@@ -61,6 +80,16 @@ void print_edge_matrix(int **edgeMatrix, int n) {
 
 void print_path(bool verbose, int* path, int pathLength, int distance) {
     if (!verbose) return;
+    for (int i = 0; i < pathLength; i++) {
+        printf("%d", path[i]);
+        if (i != pathLength-1) printf("->");
+    }
+    printf(",%d\n", distance);
+}
+
+void printt_path(bool verbose, int rank, int* path, int pathLength, int distance) {
+    if (!verbose) return;
+    printf("T%d: ", rank);
     for (int i = 0; i < pathLength; i++) {
         printf("%d", path[i]);
         if (i != pathLength-1) printf("->");
