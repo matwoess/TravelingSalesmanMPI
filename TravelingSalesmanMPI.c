@@ -53,11 +53,15 @@ void set_done_flag(int *buf, int flag);
 
 int get_best_dist(int *buf);
 
-bool all_threads_received_done();
+bool all_threads_terminated();
 
-void send_done_to_worker(int source);
+void send_done_to_worker(int dest);
+
+void *send_result_to_manager();
 
 void freeGlobals();
+
+void send_beset_distance_to_worker(int dest);
 
 bool prune = true;
 bool verbose = false;
@@ -68,12 +72,12 @@ int bestDistance;
 int *bestPath;
 int *paths;
 int pathsInStack;
-int doneFlag;
 
-int size, rank;
+int nThreads, rank;
 int *commBuffer;
 int commBufferSize;
-int *workerThreadsNotified;
+int doneFlag;
+int workerThreadsTerminated;
 
 static const int EXAMPLE_EDGES[][4] = {
         {0, 1,  3,  8},
@@ -89,13 +93,14 @@ static const int EXAMPLE_EDGES[][4] = {
 #define OFFSET_BEST_DIST 3
 #define OFFSET_DONE_FLAG 4
 
-static const int TAG_REQUEST_PATH = 99;
-static const int TAG_NEW_BEST = 100;
+static const int TAG_REQUEST_PATH = 97;
+static const int TAG_NEW_BEST = 98;
+static const int TAG_BEST_DIST = 99;
 
 int main(int argc, char *argv[]) {
     if (!parse_args(argc, argv)) return ERR_INVALID_ARGS;
     MPI_Init(&argc, &argv);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    MPI_Comm_size(MPI_COMM_WORLD, &nThreads);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     if (rank == 0) {
         print_edge_matrix(&edgeMatrix, N);
@@ -108,16 +113,12 @@ int main(int argc, char *argv[]) {
         free(path);
         while (true) {
             listen_for_messages();
-            if (doneFlag && all_threads_received_done()) {
-                break;
-            }
+            if (all_threads_terminated()) break;
         }
     } else {
         while (true) {
             int *path = get_path_from_manager();
-            if (doneFlag) {
-                break;
-            };
+            if (doneFlag) break;
             solve(path);
         }
     }
@@ -131,6 +132,8 @@ int main(int argc, char *argv[]) {
         printf("\nBest path:\n");
         printt_path(true, rank, bestPath, N + 1, bestDistance);
         printf("\nAlgorithm took %.3fs\n", (double) (t2 - t1));
+    } else {
+        logt_msg(true, rank, "thread exiting...");
     }
     freeGlobals();
     MPI_Finalize();
@@ -146,25 +149,18 @@ void init_globals() {
     allocate_int_array(&commBuffer, 1, commBufferSize);
     doneFlag = false;
     if (rank == 0) {
-        allocate_int_array(&workerThreadsNotified, 1, N - 1);
-        for (int i = 0; i < N - 1; i++)
-            workerThreadsNotified[i] = true;
+        workerThreadsTerminated = 0;
     }
 }
 
-bool all_threads_received_done() {
-    for (int i = 0; i < N - 1; i++)
-        if (!workerThreadsNotified[i]) return false;
-    return true;
+bool all_threads_terminated() {
+    return workerThreadsTerminated == nThreads - 1;
 }
 
 void freeGlobals() {
     free(paths);
     free(bestPath);
     free(commBuffer);
-    if (rank == 0) {
-        free(workerThreadsNotified);
-    }
 }
 
 void listen_for_messages() {
@@ -176,7 +172,7 @@ void listen_for_messages() {
         logt_msg(verbose, rank, "received request was for a new path...");
         if (doneFlag) {
             send_done_to_worker(status.MPI_SOURCE);
-            workerThreadsNotified[status.MPI_SOURCE] = true;
+            workerThreadsTerminated++;
         } else {
             int *path = commBuffer;
             remove_path(path);
@@ -200,6 +196,7 @@ void listen_for_messages() {
             memcpy(bestPath, commBuffer, (N + 3) * sizeof(int));
             bestDistance = newDist;
         }
+        send_beset_distance_to_worker(status.MPI_SOURCE);
     } else {
         logt_msg(verbose, rank, "unknown tag received!");
     }
@@ -207,6 +204,7 @@ void listen_for_messages() {
 
 void send_done_to_worker(int dest) {
     logt_msg(verbose, rank, "informing worker that work is done.");
+    set_best_dist(commBuffer, bestDistance);
     set_done_flag(commBuffer, doneFlag);
     MPI_Send(commBuffer, commBufferSize, MPI_INT,
              dest, TAG_REQUEST_PATH, MPI_COMM_WORLD);
@@ -215,11 +213,18 @@ void send_done_to_worker(int dest) {
 void send_path_to_worker(int *path, int dest) {
     logt_msg(verbose, rank, "sending path to worker...");
     printt_path(verbose, rank, path, get_path_length(path), get_path_dist(path));
-    memcpy(commBuffer, path, (N + 3) * sizeof(int));
     set_best_dist(commBuffer, bestDistance);
     set_done_flag(commBuffer, doneFlag);
-    MPI_Send(commBuffer, commBufferSize, MPI_INT, dest, TAG_REQUEST_PATH, MPI_COMM_WORLD);
-    logt_msg(verbose, rank, "sent path to worker.");
+    MPI_Send(commBuffer, commBufferSize, MPI_INT,
+             dest, TAG_REQUEST_PATH, MPI_COMM_WORLD);
+}
+
+void send_beset_distance_to_worker(int dest) {
+    logt_msg(verbose, rank, "sending back best distance by now...");
+    set_best_dist(commBuffer, bestDistance);
+    set_done_flag(commBuffer, doneFlag);
+    MPI_Send(commBuffer, commBufferSize, MPI_INT,
+             dest, TAG_BEST_DIST, MPI_COMM_WORLD);
 }
 
 int *get_path_from_manager() {
@@ -237,18 +242,20 @@ int *get_path_from_manager() {
     }
     logt_msg(verbose, rank, "received path from manager.");
     int *path = commBuffer;
-    bestDistance = get_best_dist(commBuffer);
+    bestDistance = get_best_dist(path);
     return path;
 }
 
-void *send_result_to_manager(int *path) {
+void *send_result_to_manager() {
     logt_msg(verbose, rank, "sending path to manager...");
-    memcpy(commBuffer, path, (N + 3) * sizeof(int));
     set_best_dist(commBuffer, bestDistance);
-    set_done_flag(commBuffer, doneFlag);
     MPI_Send(commBuffer, commBufferSize, MPI_INT,
              MANAGER, TAG_NEW_BEST, MPI_COMM_WORLD);
-
+    MPI_Status status;
+    logt_msg(verbose, rank, "waiting for best distance from manager...");
+    MPI_Recv(commBuffer, commBufferSize, MPI_INT,
+             MANAGER, TAG_BEST_DIST, MPI_COMM_WORLD, &status);
+    bestDistance = get_best_dist(commBuffer);
 }
 
 int *init_path() {
@@ -340,7 +347,7 @@ void update_result(int *path) {
         logt_msg(verbose, rank, "new best!");
         bestDistance = totalDist;
         memcpy(bestPath, path, (N + 3) * sizeof(int));
-        send_result_to_manager(bestPath);
+        send_result_to_manager();
     }
 }
 
