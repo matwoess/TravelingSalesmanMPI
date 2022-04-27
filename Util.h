@@ -1,6 +1,8 @@
 #ifndef TRAVELINGSALESMAN_UTIL_H
 #define TRAVELINGSALESMAN_UTIL_H
 
+#include <stdbool.h>
+
 void allocate_int_array(int **array, int rows, int columns);
 void print_edge_matrix(int **edgeMatrix, int n);
 int *get_random_edge_matrix(int nNodes, int populationPercentage);

@@ -57,7 +57,7 @@ bool all_threads_terminated();
 
 void send_done_to_worker(int dest);
 
-void *send_result_to_manager();
+void send_result_to_manager();
 
 void freeGlobals();
 
@@ -246,7 +246,7 @@ int *get_path_from_manager() {
     return path;
 }
 
-void *send_result_to_manager() {
+void send_result_to_manager() {
     logt_msg(verbose, rank, "sending path to manager...");
     set_best_dist(commBuffer, bestDistance);
     MPI_Send(commBuffer, commBufferSize, MPI_INT,
