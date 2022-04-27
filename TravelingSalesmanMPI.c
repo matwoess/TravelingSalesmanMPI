@@ -8,59 +8,32 @@
 #include "Util.h"
 
 bool parse_args(int argc, char **argv);
-
 void init_globals();
-
 int get_path_length(int *p);
-
 void set_path_length(int *p, int len);
-
 int get_path_dist(int *p);
-
 void set_path_dist(int *p, int dist);
-
 int get_last_node(int *path);
-
 int *init_path();
-
 bool is_already_in_path(int *path, int node);
-
 void add_path(int *path);
-
 void remove_path(int *path);
-
 void split_work(int *path);
-
 void solve(int *path);
-
 int add_node(int *path, int i);
-
 void remove_node(int *path, int w);
-
 void update_result(int *path);
-
 int *get_path_from_manager();
-
 void send_path_to_worker(int *path, int dest);
-
 void listen_for_messages();
-
 bool get_done_flag(int *buf);
-
 void set_best_dist(int *buf, int distance);
-
 void set_done_flag(int *buf, int flag);
-
 int get_best_dist(int *buf);
-
 bool all_threads_terminated();
-
 void send_done_to_worker(int dest);
-
 void send_result_to_manager();
-
 void freeGlobals();
-
 void send_beset_distance_to_worker(int dest);
 
 bool prune = true;

@@ -7,36 +7,20 @@
 #include <time.h>
 #include "Util.h"
 
-#define ERR_INVALID_ARGS -1
-
 bool parse_args(int argc, char **argv);
-
 void init_globals();
-
 int get_path_length(int *p);
-
 void set_path_length(int *p, int len);
-
 int get_path_dist(int *p);
-
 void set_path_dist(int *p, int dist);
-
 int get_last_node(int *path);
-
 int *init_path();
-
 bool is_already_in_path(int *path, int node);
-
 void add_path(int *path);
-
 void remove_path(int *path);
-
 void solve();
-
 int add_node(int *path, int i);
-
 void remove_node(int *path, int w);
-
 void update_result(int *path);
 
 bool prune = true;
@@ -57,6 +41,7 @@ static const int EXAMPLE_EDGES[][4] = {
         {7, 4,  12, 0},
 };
 #define EXAMPLE_N_NODES 4
+#define ERR_INVALID_ARGS (-1)
 
 int main(int argc, char *argv[]) {
     if (!parse_args(argc, argv)) return ERR_INVALID_ARGS;
