@@ -2,7 +2,6 @@
 #include <stdbool.h>
 #include <string.h>
 #include <limits.h>
-#include <mpi.h>
 #include <stdlib.h>
 #include <time.h>
 #include "Util.h"
@@ -48,16 +47,17 @@ int main(int argc, char *argv[]) {
     print_edge_matrix(&edgeMatrix, N);
     init_globals();
     //MPI_Init(&argc, &argv);
-    time_t t1 = time(NULL);
+    clock_t t = clock();
     solve();
-    time_t t2 = time(NULL);
+    t = clock() - t;
+    double timeTaken = ((double) t) / CLOCKS_PER_SEC;
     if (bestDistance == INT_MAX) {
         printf("No solution possible for current graph!\n");
         return -1;
     }
     printf("\nBest path:\n");
     print_path(true, bestPath, N + 1, bestDistance);
-    printf("\nAlgorithm took %.3fs\n", (double) (t2 - t1));
+    printf("\nAlgorithm took %.3fs\n", timeTaken);
     return 0;
 }
 
