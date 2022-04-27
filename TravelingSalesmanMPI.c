@@ -79,7 +79,7 @@ int main(int argc, char *argv[]) {
         print_edge_matrix(&edgeMatrix, N);
     }
     init_globals();
-    clock_t t = clock();
+    double t = MPI_Wtime();
     if (rank == 0) {
         int *path = init_path();
         add_path(path);
@@ -95,8 +95,7 @@ int main(int argc, char *argv[]) {
             solve(path);
         }
     }
-    t = clock() - t;
-    double timeTaken = ((double) t) / CLOCKS_PER_SEC;
+    t = MPI_Wtime() - t;
     if (rank == 0) {
         if (bestDistance == INT_MAX) {
             printf("No solution possible for current graph!\n");
@@ -105,7 +104,7 @@ int main(int argc, char *argv[]) {
         }
         printf("\nBest path:\n");
         printt_path(true, rank, bestPath, N + 1, bestDistance);
-        printf("\nAlgorithm took %.3fs\n", timeTaken);
+        printf("\nAlgorithm took %.3fs\n", t);
     } else {
         logt_msg(true, rank, "thread exiting...");
     }
